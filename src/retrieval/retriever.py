@@ -29,17 +29,14 @@ def retrieve_chunks(query: str, scope: AuthorizedScope) -> list[RetrievedChunk]:
     top_k = settings["retrieval"]["top_k"]
     threshold = settings["retrieval"]["score_threshold"]
 
-    try:
-        store = load_vectorstore()
-        # Chroma similarity_search_with_relevance_scores returns (Document, score)
-        # where higher score = more relevant.
-        results = store.similarity_search_with_relevance_scores(
-            query,
-            k=top_k * 3,  # over-fetch, then filter by permission + threshold
-        )
-    except Exception as exc:
-        logger.warning("Vector search returned error or empty collection: %s", exc)
-        return []
+    store = load_vectorstore()
+
+    # Chroma similarity_search_with_relevance_scores returns (Document, score)
+    # where higher score = more relevant.
+    results = store.similarity_search_with_relevance_scores(
+        query,
+        k=top_k * 3,  # over-fetch, then filter by permission + threshold
+    )
 
     filtered: list[RetrievedChunk] = []
     for doc, score in results:
@@ -51,11 +48,11 @@ def retrieve_chunks(query: str, scope: AuthorizedScope) -> list[RetrievedChunk]:
         filtered.append(
             RetrievedChunk(
                 text=doc.page_content,
-                doc_id=meta.get("doc_id", "unknown"),
-                file_name=meta.get("file_name", "unknown"),
-                page_number=meta.get("page_number", 1),
+                doc_id=meta["doc_id"],
+                file_name=meta["file_name"],
+                page_number=meta["page_number"],
                 score=score,
-                source_type=meta.get("source_type", "native"),
+                source_type=meta["source_type"],
             )
         )
         if len(filtered) >= top_k:

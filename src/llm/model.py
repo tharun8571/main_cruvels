@@ -1,6 +1,13 @@
 """
 LLM interface layer. Keeps model choice/provider isolated from agent and
 retrieval logic so swapping models or providers never touches those layers.
+
+Provider "moonshot" targets Kimi K2.5 -- the finalized reasoning/agent
+candidate from Model_Verification_and_Evaluation_Final_Report (HIGH
+PRIORITY: verified spec sheet, native multimodal + agentic reasoning,
+fits legal RAG/drafting/document-understanding workloads). Moonshot's API
+is OpenAI-compatible, so this reuses ChatOpenAI with a custom base_url
+instead of a separate client.
 """
 from __future__ import annotations
 
@@ -43,14 +50,10 @@ def get_llm():
         )
 
     if provider == "openrouter":
-        api_key = (
-            os.getenv("OPENROUTER_API_KEY")
-            or os.getenv("MOONSHOT_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
-        )
+        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("MOONSHOT_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError(
-                "OPENROUTER_API_KEY is not set. Please add OPENROUTER_API_KEY to your environment variables."
+                "OPENROUTER_API_KEY is not set. Add OPENROUTER_API_KEY to .env."
             )
         return ChatOpenAI(
             model=settings["llm"]["model"],

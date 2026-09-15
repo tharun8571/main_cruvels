@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, APIRouter, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -38,8 +38,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-router = APIRouter()
-
 
 class AskRequest(BaseModel):
     question: str
@@ -52,7 +50,7 @@ class AskResponse(BaseModel):
     is_fallback: bool
 
 
-@router.get("/health")
+@app.get("/api/health")
 def health_check():
     settings = get_settings()
     return {
@@ -63,7 +61,7 @@ def health_check():
     }
 
 
-@router.post("/ask", response_model=AskResponse)
+@app.post("/api/ask", response_model=AskResponse)
 def ask_question(req: AskRequest):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
@@ -83,7 +81,7 @@ def ask_question(req: AskRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/documents")
+@app.get("/api/documents")
 def list_documents():
     raw_dir = get_path("raw_data_dir")
     if not raw_dir.exists():
@@ -101,7 +99,7 @@ def list_documents():
     return {"documents": files}
 
 
-@router.delete("/knowledge-base")
+@app.delete("/api/knowledge-base")
 def clear_knowledge_base():
     """Wipe all ingested documents and the vector store."""
     errors = []
@@ -135,7 +133,7 @@ def clear_knowledge_base():
     return {"status": "cleared"}
 
 
-@router.post("/upload")
+@app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...)):
     supported = get_settings()["ingestion"]["supported_extensions"]
     ext = Path(file.filename).suffix.lower()
@@ -168,15 +166,7 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
 
 
-# Register all endpoints for BOTH /api/* and root /* to guarantee routing on Vercel
-app.include_router(router, prefix="/api")
-app.include_router(router, prefix="")
-
-# Serve static web frontend (local dev only; on Vercel static files are
-# served directly by the edge CDN via public/ directory)
-static_dir = Path(__file__).resolve().parent.parent.parent / "public"
-if not static_dir.exists():
-    static_dir = Path(__file__).resolve().parent.parent.parent / "static"
-
-if static_dir.exists():
-    app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+# Serve static web frontend
+static_dir = Path(__file__).resolve().parent.parent.parent / "static"
+static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")

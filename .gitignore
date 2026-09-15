@@ -11,8 +11,6 @@ ENV/
 # Downloaded Model Weights & Vector DB Storage
 bge-small-local/
 data/vectorstore/
-data/raw/
-data/processed/
 .cache/
 
 # Byte-compiled / Optimized / DLL files
@@ -25,11 +23,6 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
-.gemini/
 
 # Temporary / Log files
 *.log
-
-# Test scripts (local only)
-test_embedding.py
-test_llm.py

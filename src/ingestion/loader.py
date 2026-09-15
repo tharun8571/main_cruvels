@@ -52,31 +52,27 @@ def _load_pdf(path: Path) -> LoadedDocument:
             pages.append(PageContent(page_number=i + 1, text=native_text, source_type="native"))
             continue
 
-        # No extractable text -> render page to image and OCR it if available.
+        # No extractable text -> render page to image and OCR it.
         logger.info("Page %s of %s has no native text, running OCR", i + 1, path.name)
-        try:
-            pix = page.get_pixmap(dpi=200)
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as tmp:
-                pix.save(tmp.name)
-                ocr_result = ocr_image(tmp.name, page_number=i + 1)
+        pix = page.get_pixmap(dpi=200)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as tmp:
+            pix.save(tmp.name)
+            ocr_result = ocr_image(tmp.name, page_number=i + 1)
 
-            if ocr_result.confidence < min_conf:
-                logger.warning(
-                    "OCR confidence %.2f below threshold %.2f on page %s of %s",
-                    ocr_result.confidence, min_conf, i + 1, path.name,
-                )
-
-            pages.append(
-                PageContent(
-                    page_number=i + 1,
-                    text=ocr_result.text,
-                    source_type="ocr",
-                    confidence=ocr_result.confidence,
-                )
+        if ocr_result.confidence < min_conf:
+            logger.warning(
+                "OCR confidence %.2f below threshold %.2f on page %s of %s",
+                ocr_result.confidence, min_conf, i + 1, path.name,
             )
-        except Exception as ocr_err:
-            logger.warning("OCR processing skipped for page %s of %s: %s", i + 1, path.name, ocr_err)
-            pages.append(PageContent(page_number=i + 1, text="", source_type="native"))
+
+        pages.append(
+            PageContent(
+                page_number=i + 1,
+                text=ocr_result.text,
+                source_type="ocr",
+                confidence=ocr_result.confidence,
+            )
+        )
 
     doc.close()
     return LoadedDocument(doc_id=path.stem, file_name=path.name, pages=pages)
