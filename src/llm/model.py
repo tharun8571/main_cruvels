@@ -61,6 +61,12 @@ def get_llm():
             max_tokens=settings["llm"]["max_tokens"],
             base_url=OPENROUTER_BASE_URL,
             api_key=api_key,
+            timeout=30.0,
+            max_retries=2,
+            default_headers={
+                "HTTP-Referer": "http://localhost:8000",
+                "X-Title": "Cruvels AI Legal Assistant",
+            },
         )
 
     raise ValueError(f"Unsupported LLM provider: {provider}")

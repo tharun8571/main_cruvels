@@ -17,11 +17,21 @@ from .embeddings import get_embeddings
 logger = logging.getLogger(__name__)
 
 
+_CACHED_VECTORSTORE: Chroma | None = None
+
+
+def reset_vectorstore_cache() -> None:
+    """Invalidates the in-memory Chroma vectorstore instance."""
+    global _CACHED_VECTORSTORE
+    _CACHED_VECTORSTORE = None
+
+
 def build_vectorstore(chunks: list[Chunk], visibility: str = "shared") -> Chroma:
     """Embed chunks and persist them to the local Chroma store.
     `visibility` tags every chunk (shared/client/firm/private) so retrieval
     can later filter by what the current user/session is authorized to see.
     """
+    global _CACHED_VECTORSTORE
     persist_dir = str(get_path("vectorstore_dir"))
     embeddings = get_embeddings()
 
@@ -48,14 +58,20 @@ def build_vectorstore(chunks: list[Chunk], visibility: str = "shared") -> Chroma
         persist_directory=persist_dir,
         collection_name="briefly_stage1",
     )
+    _CACHED_VECTORSTORE = store
     return store
 
 
 def load_vectorstore() -> Chroma:
+    global _CACHED_VECTORSTORE
+    if _CACHED_VECTORSTORE is not None:
+        return _CACHED_VECTORSTORE
+
     persist_dir = str(get_path("vectorstore_dir"))
     embeddings = get_embeddings()
-    return Chroma(
+    _CACHED_VECTORSTORE = Chroma(
         persist_directory=persist_dir,
         embedding_function=embeddings,
         collection_name="briefly_stage1",
     )
+    return _CACHED_VECTORSTORE

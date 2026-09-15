@@ -31,12 +31,15 @@ def retrieve_chunks(query: str, scope: AuthorizedScope) -> list[RetrievedChunk]:
 
     store = load_vectorstore()
 
-    # Chroma similarity_search_with_relevance_scores returns (Document, score)
-    # where higher score = more relevant.
-    results = store.similarity_search_with_relevance_scores(
-        query,
-        k=top_k * 3,  # over-fetch, then filter by permission + threshold
-    )
+    try:
+        # Chroma similarity_search_with_relevance_scores returns (Document, score)
+        results = store.similarity_search_with_relevance_scores(
+            query,
+            k=min(top_k * 2, 10),
+        )
+    except Exception as e:
+        logger.warning("Error during similarity search: %s", e)
+        return []
 
     filtered: list[RetrievedChunk] = []
     for doc, score in results:

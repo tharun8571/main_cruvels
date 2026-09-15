@@ -25,10 +25,13 @@ from src.tools.retrieval_tool import make_document_search_tool
 from src.tools.metadata_tool import make_metadata_lookup_tool
 from .state import AgentState
 
+from functools import lru_cache
+
 logger = logging.getLogger(__name__)
 _PROMPTS_DIR = get_path("prompts_dir")
 
 
+@lru_cache(maxsize=1)
 def _system_prompt() -> str:
     return (_PROMPTS_DIR / "agent_system_prompt.txt").read_text()
 

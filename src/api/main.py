@@ -23,7 +23,7 @@ from src.agent.graph import run_agent
 from src.ingestion.loader import load_document
 from src.ingestion.preprocess import chunk_document
 from src.llm.model import get_llm
-from src.retrieval.vectorstore import build_vectorstore
+from src.retrieval.vectorstore import build_vectorstore, reset_vectorstore_cache
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +220,7 @@ def clear_knowledge_base():
     global SUGGESTIONS_CACHE
     SUGGESTIONS_CACHE["key"] = None
     SUGGESTIONS_CACHE["suggestions"] = None
+    reset_vectorstore_cache()
     errors = []
 
     # 1. Delete all files in the raw data directory
