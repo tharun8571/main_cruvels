@@ -103,23 +103,14 @@
                     <h2>Welcome to Cruvels Legal RAG</h2>
                     <p>Ask questions about your ingested contracts, non-disclosure agreements, clauses, parties, or obligations.</p>
                     
-                    <div class="sample-prompts">
-                        <button class="prompt-card" data-prompt="Who are the parties named in the Cruvels agreement?">
-                            <i class="fa-solid fa-users-gear"></i>
-                            <span>Who are the parties in the agreement?</span>
-                        </button>
-                        <button class="prompt-card" data-prompt="What is the internship duration and remote work policy?">
-                            <i class="fa-solid fa-clock"></i>
-                            <span>Internship duration & remote work policy</span>
-                        </button>
-                        <button class="prompt-card" data-prompt="What are the confidentiality obligations and post-internship restrictions?">
-                            <i class="fa-solid fa-shield-halved"></i>
-                            <span>Confidentiality & post-internship protection</span>
-                        </button>
-                        <button class="prompt-card" data-prompt="What is the governing law and jurisdiction?">
-                            <i class="fa-solid fa-gavel"></i>
-                            <span>Governing law & court jurisdiction</span>
-                        </button>
+                    <div class="prompts-section">
+                        <div class="prompts-header">
+                            <span id="promptsTitle"><i class="fa-solid fa-sparkles"></i> Document Suggested Questions</span>
+                            <button class="icon-btn" id="refreshSuggestionsBtn" title="Regenerate suggestions from documents"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+                        </div>
+                        <div class="sample-prompts" id="samplePrompts">
+                            <!-- Dynamic prompt cards injected via app.js -->
+                        </div>
                     </div>
                 </div>
 

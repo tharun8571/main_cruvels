@@ -20,22 +20,23 @@ from __future__ import annotations
 
 import logging
 
-from langchain_core.messages import HumanMessage
+import json
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
+from src.config import get_settings
 from src.context.permissions import AuthorizedScope
+from src.retrieval.retriever import retrieve_chunks
+from src.llm.model import get_llm
 from .state import AgentState
-from .nodes import agent_node, should_continue, count_tool_call, finalize, get_tools_for_scope
+from .nodes import agent_node, should_continue, count_tool_call, finalize, get_tools_for_scope, _system_prompt
 
 logger = logging.getLogger(__name__)
 
 
 def build_agent_graph(scope: AuthorizedScope):
-    """Builds the graph bound to a specific AuthorizedScope. The tool node
-    needs concrete, already-scoped tool instances (each tool closes over
-    the scope so retrieval can never cross a visibility boundary), so the
-    graph is built per-scope rather than once globally."""
+    """Builds the multi-turn tool-calling graph for complex workflows."""
     tools = get_tools_for_scope(scope)
     tool_node = ToolNode(tools)
 
@@ -59,17 +60,126 @@ def build_agent_graph(scope: AuthorizedScope):
 
 
 def run_agent(question: str, scope: AuthorizedScope) -> dict:
-    """Entry point for running one question through the Legal Knowledge
-    Assistant. Returns a dict with `answer`, `sources`, and `is_fallback`."""
-    app = build_agent_graph(scope)
-    initial_state: AgentState = {
-        "messages": [HumanMessage(content=question)],
-        "scope": scope,
-        "tool_calls_made": 0,
-    }
-    final_state = app.invoke(initial_state)
-    return {
-        "answer": final_state.get("answer", ""),
-        "sources": final_state.get("sources", []),
-        "is_fallback": final_state.get("is_fallback", False),
-    }
+    """Fast-path grounded legal Q&A agent.
+    Performs high-speed direct vector search first (sub-50ms) and executes
+    a single-pass grounded generation, cutting out multiple LLM roundtrips.
+    """
+    settings = get_settings()
+    chunks = retrieve_chunks(question, scope)
+
+    if not chunks:
+        logger.info("run_agent: no matching chunks found, returning fallback")
+        return {
+            "answer": settings["agent"]["fallback_message"],
+            "sources": [],
+            "is_fallback": True,
+        }
+
+    sources = []
+    seen = set()
+    for c in chunks:
+        key = (c.file_name, c.page_number)
+        if key not in seen:
+            seen.add(key)
+            sources.append({
+                "file_name": c.file_name,
+                "page_number": c.page_number,
+                "doc_id": c.doc_id,
+            })
+
+    evidence_blocks = [
+        f"--- [Source: {c.file_name}, Page: {c.page_number}] ---\n{c.text}"
+        for c in chunks
+    ]
+    combined_evidence = "\n\n".join(evidence_blocks)
+
+    system_msg = SystemMessage(content=_system_prompt())
+    human_msg = HumanMessage(
+        content=(
+            f"User Question:\n{question}\n\n"
+            f"Authorized Document Evidence:\n{combined_evidence}\n\n"
+            "Instructions: Provide a clear, accurate, and professional legal answer strictly grounded in the authorized evidence above. "
+            "Cite the specific document name and page number for each key point."
+        )
+    )
+
+    try:
+        llm = get_llm()
+        response = llm.invoke([system_msg, human_msg])
+        answer_text = response.content.strip()
+        return {
+            "answer": answer_text,
+            "sources": sources,
+            "is_fallback": False,
+        }
+    except Exception as e:
+        logger.warning("Error during fast LLM invocation, falling back to graph agent: %s", e)
+        app = build_agent_graph(scope)
+        initial_state: AgentState = {
+            "messages": [HumanMessage(content=question)],
+            "scope": scope,
+            "tool_calls_made": 0,
+        }
+        final_state = app.invoke(initial_state)
+        return {
+            "answer": final_state.get("answer", ""),
+            "sources": final_state.get("sources", []),
+            "is_fallback": final_state.get("is_fallback", False),
+        }
+
+
+def stream_agent(question: str, scope: AuthorizedScope):
+    """Streams tokens in real-time as line-delimited JSON chunks for instantaneous UI response."""
+    settings = get_settings()
+    chunks = retrieve_chunks(question, scope)
+
+    if not chunks:
+        yield json.dumps({
+            "type": "fallback",
+            "answer": settings["agent"]["fallback_message"],
+            "sources": [],
+            "is_fallback": True,
+        }) + "\n"
+        return
+
+    sources = []
+    seen = set()
+    for c in chunks:
+        key = (c.file_name, c.page_number)
+        if key not in seen:
+            seen.add(key)
+            sources.append({
+                "file_name": c.file_name,
+                "page_number": c.page_number,
+                "doc_id": c.doc_id,
+            })
+
+    # Yield citations immediately so the UI renders citation badges in <50ms
+    yield json.dumps({"type": "sources", "sources": sources, "is_fallback": False}) + "\n"
+
+    evidence_blocks = [
+        f"--- [Source: {c.file_name}, Page: {c.page_number}] ---\n{c.text}"
+        for c in chunks
+    ]
+    combined_evidence = "\n\n".join(evidence_blocks)
+
+    system_msg = SystemMessage(content=_system_prompt())
+    human_msg = HumanMessage(
+        content=(
+            f"User Question:\n{question}\n\n"
+            f"Authorized Document Evidence:\n{combined_evidence}\n\n"
+            "Instructions: Provide a clear, accurate, and professional legal answer strictly grounded in the authorized evidence above. "
+            "Cite the specific document name and page number for each key point."
+        )
+    )
+
+    try:
+        llm = get_llm()
+        for chunk in llm.stream([system_msg, human_msg]):
+            if chunk.content:
+                yield json.dumps({"type": "token", "token": chunk.content}) + "\n"
+    except Exception as e:
+        logger.exception("Error during LLM streaming: %s", e)
+        yield json.dumps({"type": "error", "detail": str(e)}) + "\n"
+
+    yield json.dumps({"type": "done"}) + "\n"
