@@ -54,23 +54,36 @@ def _load_pdf(path: Path) -> LoadedDocument:
 
         # No extractable text -> render page to image and OCR it.
         logger.info("Page %s of %s has no native text, running OCR", i + 1, path.name)
-        pix = page.get_pixmap(dpi=200)
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as tmp:
-            pix.save(tmp.name)
-            ocr_result = ocr_image(tmp.name, page_number=i + 1)
+        ocr_text = ""
+        ocr_conf = 0.0
+        temp_img = Path(tempfile.gettempdir()) / f"page_ocr_{i}_{path.stem}.png"
+        try:
+            pix = page.get_pixmap(dpi=200)
+            pix.save(str(temp_img))
+            ocr_result = ocr_image(str(temp_img), page_number=i + 1)
+            ocr_text = ocr_result.text
+            ocr_conf = ocr_result.confidence
+        except Exception as ocr_err:
+            logger.warning("OCR failed on page %s of %s: %s", i + 1, path.name, ocr_err)
+        finally:
+            if temp_img.exists():
+                try:
+                    temp_img.unlink()
+                except Exception:
+                    pass
 
-        if ocr_result.confidence < min_conf:
+        if ocr_conf < min_conf:
             logger.warning(
                 "OCR confidence %.2f below threshold %.2f on page %s of %s",
-                ocr_result.confidence, min_conf, i + 1, path.name,
+                ocr_conf, min_conf, i + 1, path.name,
             )
 
         pages.append(
             PageContent(
                 page_number=i + 1,
-                text=ocr_result.text,
+                text=ocr_text,
                 source_type="ocr",
-                confidence=ocr_result.confidence,
+                confidence=ocr_conf,
             )
         )
 

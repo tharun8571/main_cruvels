@@ -15,25 +15,27 @@ document.addEventListener("DOMContentLoaded", () => {
     const welcomeScreen = document.getElementById("welcomeScreen");
     const clearChatBtn = document.getElementById("clearChatBtn");
     const clearKbBtn = document.getElementById("clearKbBtn");
+    const samplePrompts = document.getElementById("samplePrompts");
+    const refreshSuggestionsBtn = document.getElementById("refreshSuggestionsBtn");
+    const promptsTitle = document.getElementById("promptsTitle");
 
-    // Initialize API Status Check
+    // Initialize API Status Check & Dynamic Suggestions
     checkHealth();
     fetchDocuments();
-
-    // Event Listeners for Sample Prompts
-    document.querySelectorAll(".prompt-card").forEach(card => {
-        card.addEventListener("click", () => {
-            const promptText = card.getAttribute("data-prompt");
-            userQuery.value = promptText;
-            submitQuery(promptText);
-        });
-    });
+    fetchSuggestions();
 
     // Clear Chat
     clearChatBtn.addEventListener("click", () => {
         chatMessages.innerHTML = "";
         welcomeScreen.style.display = "flex";
     });
+
+    // Refresh Suggestions Button
+    if (refreshSuggestionsBtn) {
+        refreshSuggestionsBtn.addEventListener("click", () => {
+            fetchSuggestions();
+        });
+    }
 
     // Auto-resize textarea
     userQuery.addEventListener("input", () => {
@@ -134,6 +136,82 @@ document.addEventListener("DOMContentLoaded", () => {
         `).join("");
     }
 
+    async function fetchSuggestions() {
+        if (!samplePrompts) return;
+        samplePrompts.innerHTML = `
+            <div class="prompt-card-loading">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <span>Analyzing document and generating suggestions...</span>
+            </div>
+        `;
+        try {
+            const res = await fetch("/api/suggestions");
+            if (res.ok) {
+                const data = await res.json();
+                renderSuggestions(data.suggestions || [], data.is_dynamic);
+            } else {
+                renderSuggestions([], false);
+            }
+        } catch (err) {
+            console.error("Error fetching suggestions:", err);
+            renderSuggestions([], false);
+        }
+    }
+
+    function renderSuggestions(suggestions, isDynamic) {
+        if (!samplePrompts) return;
+        if (!suggestions || suggestions.length === 0) {
+            samplePrompts.innerHTML = `
+                <div class="prompt-card-loading">
+                    <span>Upload a document to get automated question suggestions.</span>
+                </div>
+            `;
+            return;
+        }
+
+        if (promptsTitle) {
+            promptsTitle.innerHTML = isDynamic
+                ? '<i class="fa-solid fa-wand-magic-sparkles"></i> Tailored Document Suggestions'
+                : '<i class="fa-solid fa-file-contract"></i> Recommended Questions';
+        }
+
+        samplePrompts.innerHTML = suggestions.map(s => `
+            <button class="prompt-card" data-prompt="${escapeAttribute(s.question)}">
+                <i class="${s.icon || 'fa-solid fa-file-lines'}"></i>
+                <div class="prompt-card-content">
+                    <span class="prompt-card-label">${escapeHtml(s.label)}</span>
+                    <span class="prompt-card-sub">${escapeHtml(s.question)}</span>
+                </div>
+            </button>
+        `).join("");
+
+        // Reattach event listeners to dynamically created cards
+        samplePrompts.querySelectorAll(".prompt-card").forEach(card => {
+            card.addEventListener("click", () => {
+                const promptText = card.getAttribute("data-prompt");
+                if (promptText) {
+                    userQuery.value = promptText;
+                    submitQuery(promptText);
+                }
+            });
+        });
+    }
+
+    function escapeHtml(str) {
+        if (!str) return "";
+        return str
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function escapeAttribute(str) {
+        if (!str) return "";
+        return str.replace(/"/g, "&quot;");
+    }
+
     async function clearKnowledgeBase() {
         clearKbBtn.disabled = true;
         statusText.textContent = "Clearing knowledge base...";
@@ -143,6 +221,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const data = await res.json();
                 statusText.textContent = "API Ready";
                 fetchDocuments();
+                fetchSuggestions();
                 if (data.status === "cleared") {
                     appendSystemNotice("✅ Knowledge base cleared. All documents and vectors removed.");
                 } else {
@@ -170,28 +249,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 method: "POST",
                 body: formData
             });
-
-            const text = await res.text();
-            let data;
-            try {
-                data = JSON.parse(text);
-            } catch {
-                data = null;
-            }
-
-            statusText.textContent = "API Ready";
-
-            if (res.ok && data) {
-                fetchDocuments();
-                alert(`Uploaded and ingested ${data.filename} (${data.chunks_ingested} chunks)`);
+            fileInput.value = "";
+            if (res.ok) {
+                const data = await res.json();
+                statusText.textContent = "API Ready";
+                await fetchDocuments();
+                await fetchSuggestions();
+                appendSystemNotice(`📄 **${data.filename}** uploaded successfully (${data.chunks_ingested} chunks ingested).`);
             } else {
-                const errMsg = (data && data.detail) ? data.detail : (text || `HTTP ${res.status} ${res.statusText}`);
-                alert("Upload failed: " + errMsg);
+                statusText.textContent = "API Ready";
+                const err = await res.json();
+                alert("Upload failed: " + (err.detail || "Error uploading file"));
             }
         } catch (err) {
             statusText.textContent = "API Ready";
-            console.error("Upload error:", err);
-            alert("Error connecting to server during upload: " + err.message);
+            fileInput.value = "";
+            alert("Error connecting to server during upload");
         }
     }
 
@@ -215,23 +288,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
             removeLoading(loadingId);
 
-            const text = await res.text();
-            let data;
-            try {
-                data = JSON.parse(text);
-            } catch {
-                data = null;
-            }
-
-            if (res.ok && data) {
+            if (res.ok) {
+                const data = await res.json();
                 appendMessage("assistant", data.answer, data.sources, data.is_fallback);
             } else {
-                const errMsg = (data && data.detail) ? data.detail : (text || `HTTP ${res.status}`);
-                appendMessage("assistant", "⚠️ **Error processing request**: " + errMsg);
+                const err = await res.json();
+                appendMessage("assistant", "⚠️ **Error processing request**: " + (err.detail || "Server error"));
             }
         } catch (err) {
             removeLoading(loadingId);
-            appendMessage("assistant", "⚠️ **Network Error**: " + err.message);
+            appendMessage("assistant", "⚠️ **Network Error**: Unable to reach backend server.");
         }
     }
 

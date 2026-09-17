@@ -249,17 +249,21 @@ document.addEventListener("DOMContentLoaded", () => {
                 method: "POST",
                 body: formData
             });
+            fileInput.value = "";
             if (res.ok) {
                 const data = await res.json();
                 statusText.textContent = "API Ready";
-                fetchDocuments();
-                fetchSuggestions();
-                alert(`Uploaded and ingested ${data.filename} (${data.chunks_ingested} chunks)`);
+                await fetchDocuments();
+                await fetchSuggestions();
+                appendSystemNotice(`📄 **${data.filename}** uploaded successfully (${data.chunks_ingested} chunks ingested).`);
             } else {
+                statusText.textContent = "API Ready";
                 const err = await res.json();
                 alert("Upload failed: " + (err.detail || "Error uploading file"));
             }
         } catch (err) {
+            statusText.textContent = "API Ready";
+            fileInput.value = "";
             alert("Error connecting to server during upload");
         }
     }

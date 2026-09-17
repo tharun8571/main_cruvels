@@ -269,8 +269,9 @@ async def upload_document(file: UploadFile = File(...)):
     raw_dir.mkdir(parents=True, exist_ok=True)
     target_path = raw_dir / file.filename
 
+    contents = await file.read()
     with open(target_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        f.write(contents)
 
     # Automatically ingest uploaded file
     try:
@@ -278,6 +279,7 @@ async def upload_document(file: UploadFile = File(...)):
         chunks = chunk_document(doc)
         if chunks:
             build_vectorstore(chunks, visibility="shared")
+        logger.info("Successfully ingested %s with %d chunks", file.filename, len(chunks))
         return {
             "status": "success",
             "filename": file.filename,
