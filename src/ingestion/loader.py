@@ -11,7 +11,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import fitz  # pymupdf
+import pymupdf as fitz  # use modern pymupdf API
 
 from .ocr import ocr_image
 from src.config import get_settings
