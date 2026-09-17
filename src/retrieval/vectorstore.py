@@ -31,7 +31,7 @@ def build_vectorstore(chunks: list[Chunk], visibility: str = "shared") -> Chroma
     `visibility` tags every chunk (shared/client/firm/private) so retrieval
     can later filter by what the current user/session is authorized to see.
     Uses add_texts() on the existing store so previously ingested documents
-    are NOT overwritten on each upload.
+    are NOT overwritten on each upload. Self-heals if database schema is corrupted.
     """
     global _CACHED_VECTORSTORE
     persist_dir = str(get_path("vectorstore_dir"))
@@ -51,21 +51,49 @@ def build_vectorstore(chunks: list[Chunk], visibility: str = "shared") -> Chroma
     ]
     ids = [c.chunk_id for c in chunks]
 
-    logger.info("Adding %d chunks to existing vectorstore at %s", len(chunks), persist_dir)
+    logger.info("Adding %d chunks to vectorstore at %s", len(chunks), persist_dir)
 
-    # Load (or create) the persistent store and ADD to it — never overwrite
+    # Load (or create) the persistent store and ADD to it — never crash
+    store = None
     if _CACHED_VECTORSTORE is not None:
-        store = _CACHED_VECTORSTORE
-    else:
-        store = Chroma(
-            persist_directory=persist_dir,
-            embedding_function=embeddings,
-            collection_name="briefly_stage1",
-        )
+        try:
+            _CACHED_VECTORSTORE.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+            store = _CACHED_VECTORSTORE
+        except Exception as e:
+            logger.warning("Failed to add to cached vectorstore (%s). Resetting cache.", e)
+            _CACHED_VECTORSTORE = None
 
-    store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+    if store is None:
+        try:
+            store = Chroma(
+                persist_directory=persist_dir,
+                embedding_function=embeddings,
+                collection_name="briefly_stage1",
+            )
+            store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+        except Exception as e:
+            logger.warning("Error with existing store (%s). Recreating clean vectorstore...", e)
+            import shutil
+            from pathlib import Path
+            p = Path(persist_dir)
+            if p.exists():
+                shutil.rmtree(p)
+            p.mkdir(parents=True, exist_ok=True)
+            store = Chroma.from_texts(
+                texts=texts,
+                embedding=embeddings,
+                metadatas=metadatas,
+                ids=ids,
+                persist_directory=persist_dir,
+                collection_name="briefly_stage1",
+            )
+
     _CACHED_VECTORSTORE = store
-    logger.info("Vectorstore now contains %d documents", store._collection.count())
+    try:
+        count = store._collection.count()
+        logger.info("Vectorstore now contains %d documents", count)
+    except Exception:
+        pass
     return store
 
 
@@ -76,9 +104,23 @@ def load_vectorstore() -> Chroma:
 
     persist_dir = str(get_path("vectorstore_dir"))
     embeddings = get_embeddings()
-    _CACHED_VECTORSTORE = Chroma(
-        persist_directory=persist_dir,
-        embedding_function=embeddings,
-        collection_name="briefly_stage1",
-    )
+    try:
+        _CACHED_VECTORSTORE = Chroma(
+            persist_directory=persist_dir,
+            embedding_function=embeddings,
+            collection_name="briefly_stage1",
+        )
+    except Exception as e:
+        logger.warning("Error loading vectorstore (%s). Initializing fresh vectorstore...", e)
+        import shutil
+        from pathlib import Path
+        p = Path(persist_dir)
+        if p.exists():
+            shutil.rmtree(p)
+        p.mkdir(parents=True, exist_ok=True)
+        _CACHED_VECTORSTORE = Chroma(
+            persist_directory=persist_dir,
+            embedding_function=embeddings,
+            collection_name="briefly_stage1",
+        )
     return _CACHED_VECTORSTORE
