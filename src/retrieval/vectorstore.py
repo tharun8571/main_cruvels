@@ -27,9 +27,11 @@ def reset_vectorstore_cache() -> None:
 
 
 def build_vectorstore(chunks: list[Chunk], visibility: str = "shared") -> Chroma:
-    """Embed chunks and persist them to the local Chroma store.
+    """Embed chunks and ADD them to the existing local Chroma store.
     `visibility` tags every chunk (shared/client/firm/private) so retrieval
     can later filter by what the current user/session is authorized to see.
+    Uses add_texts() on the existing store so previously ingested documents
+    are NOT overwritten on each upload.
     """
     global _CACHED_VECTORSTORE
     persist_dir = str(get_path("vectorstore_dir"))
@@ -49,16 +51,21 @@ def build_vectorstore(chunks: list[Chunk], visibility: str = "shared") -> Chroma
     ]
     ids = [c.chunk_id for c in chunks]
 
-    logger.info("Embedding and persisting %d chunks to %s", len(chunks), persist_dir)
-    store = Chroma.from_texts(
-        texts=texts,
-        embedding=embeddings,
-        metadatas=metadatas,
-        ids=ids,
-        persist_directory=persist_dir,
-        collection_name="briefly_stage1",
-    )
+    logger.info("Adding %d chunks to existing vectorstore at %s", len(chunks), persist_dir)
+
+    # Load (or create) the persistent store and ADD to it — never overwrite
+    if _CACHED_VECTORSTORE is not None:
+        store = _CACHED_VECTORSTORE
+    else:
+        store = Chroma(
+            persist_directory=persist_dir,
+            embedding_function=embeddings,
+            collection_name="briefly_stage1",
+        )
+
+    store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
     _CACHED_VECTORSTORE = store
+    logger.info("Vectorstore now contains %d documents", store._collection.count())
     return store
 
 

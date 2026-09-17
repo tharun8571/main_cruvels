@@ -20,7 +20,7 @@ retrieval:
   chunk_size: 800
   chunk_overlap: 120
   top_k: 5
-  score_threshold: 0.35
+  score_threshold: 0.20
 
 ingestion:
   ocr_engine: paddleocr-vl
